@@ -54,6 +54,7 @@
 
 
 // Define variables and constants
+#define STARTOFFSET  2840
 
 byte buffer[64];
 elapsedMillis msUntilNextSend;
@@ -80,11 +81,20 @@ uint16_t pot3 = 0;
 void setup()
 {
    Serial.begin(9600);
+   analogWriteResolution(16); // 32767
+   
+   // FTM0   Pins: 5, 6, 9, 10, 20, 21, 22, 23
+   // FTM1   3, 4   
+   // FTM2   25, 32
+   analogWriteFrequency(5, 50);
    Serial.println(F("RawHID Example"));
    for (int i=0; i<7; i++) 
    {
       pinMode(i, OUTPUT);
    }
+   analogWrite(5, 0x800 + STARTOFFSET);
+   analogWrite(6, 0x800 + STARTOFFSET);
+   
 }
 
 // Add loop code
@@ -99,30 +109,34 @@ void loop()
       // other 63 bytes!
       //Serial.print(F("Received packet, erstes byte: "));
       //Serial.println((int)buffer[0]);
-      for (int i=0; i<16; i++) 
-      {
-         int b = buffer[0] & (1 << i);
-         Serial.print((int)buffer[i]);
-         Serial.print("\t");
-         digitalWrite(i, b);
-      }
-      Serial.println();
+  //    for (int i=0; i<16; i++) 
+  //    {
+  //       int b = buffer[0] & (1 << i);
+ //        Serial.print((int)buffer[i]);
+ //        Serial.print("\t");
+ //        digitalWrite(i, b);
+  //    }
+      //Serial.println();
       uint16_t hb = (uint16_t)buffer[4];
       uint16_t lb = (uint16_t)buffer[5];
-      Serial.print(hb);
-      Serial.print("\t");
-      Serial.print(lb);
-      Serial.println();
+ //     Serial.print(hb);
+ //     Serial.print("\t");
+ //     Serial.print(lb);
+ //     Serial.println();
       
       pot0 = hb <<8 | lb;
+      analogWrite(5, pot0 + STARTOFFSET);
       
+      pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+      analogWrite(6, pot1 + STARTOFFSET);
       //pot0 = (buffer[4])<<8 + buffer[5];
       Serial.print("Pot0: ");
       Serial.print((int)pot0);
-          Serial.print("\t");
-           Serial.print(buffer[4]);
-           Serial.print("\t");
-          Serial.print(buffer[5]);
+      Serial.print("\t");
+      Serial.print((int)pot1);
+//           Serial.print(buffer[4]);
+ //          Serial.print("\t");
+ //         Serial.print(buffer[5]);
       //    Serial.print("\t");
       
     
