@@ -2,39 +2,16 @@
 /// @mainpage	Robot_32
 ///
 /// @details	PWM for Servos
-/// @n
-/// @n
-/// @n @a		Developed with [embedXcode+](https://embedXcode.weebly.com)
-///
-/// @author		Ruedi Heimlicher
-/// @author		Ruedi Heimlicher
-/// @date		14.07.2019 20:01
-/// @version	<#version#>
-///
-/// @copyright	(c) Ruedi Heimlicher, 2019
-/// @copyright	Licence
-///
-/// @see		ReadMe.txt for references
-///
-
-
 ///
 /// @file		Robot_32.ino
 /// @brief		Main sketch
 ///
-/// @details	<#details#>
 /// @n @a		Developed with [embedXcode+](https://embedXcode.weebly.com)
-///
-/// @author		Ruedi Heimlicher
 /// @author		Ruedi Heimlicher
 /// @date		14.07.2019 20:01
-/// @version	<#version#>
 ///
 /// @copyright	(c) Ruedi Heimlicher, 2019
-/// @copyright	Licence
-///
-/// @see		ReadMe.txt for references
-/// @n
+////// @see		ReadMe.txt for references
 ///
 
 
@@ -54,18 +31,59 @@
 
 
 // Define variables and constants
-#define STARTOFFSET  2840
+//#define STARTWERT  2840 // Mitte
+#define STARTWERT  2080 // Nullpunkt
+#define MAXWERT  4096 // Nullpunkt
 
 byte buffer[64];
 elapsedMillis msUntilNextSend;
 unsigned int packetCount = 0;
 
+volatile uint8_t usbtask = 0;
+
+volatile uint8_t teensytask = 0;
 
 uint16_t pot0 = 0;
 uint16_t pot1 = 0;
 uint16_t pot2 = 0;
 uint16_t pot3 = 0;
 
+#define  ACHSE0_BYTE_H  4
+#define  ACHSE0_BYTE_L  5
+
+#define  ACHSE1_BYTE_H  6
+#define  ACHSE1_BYTE_L  7
+
+
+#define ACHSE0_START  0x680 // Startwert low
+#define ACHSE0_MAX  0xFFF // Startwert high
+
+
+uint16_t achse0_start = ACHSE0_START;
+uint16_t achse0_max = ACHSE0_MAX;
+
+#define ACHSE1_START  0x780 // Startwert low
+#define ACHSE1_MAX  0xFFF // Startwert high
+
+uint16_t achse1_start = ACHSE1_START;
+uint16_t achse1_max = ACHSE1_MAX;
+
+
+#define SET_0  0xA1
+#define SET_1   0xB1
+//let GET_U:UInt8 = 0xA2
+//let GET_I:UInt8 = 0xB2
+
+// sinus
+elapsedMillis sinms;
+elapsedMillis sinceblink;
+float sinpos = 0;
+#define pi 3.14
+#define SIN_START   0xC0
+#define SIN_STOP   0xC1
+
+
+#define LOOPLED 13
 
 // Prototypes
 // !!! Help: http://bit.ly/2l0ZhTa
@@ -83,6 +101,8 @@ void setup()
    Serial.begin(9600);
    analogWriteResolution(16); // 32767
    
+   pinMode(LOOPLED, OUTPUT);
+   
    // FTM0   Pins: 5, 6, 9, 10, 20, 21, 22, 23
    // FTM1   3, 4   
    // FTM2   25, 32
@@ -92,14 +112,20 @@ void setup()
    {
       pinMode(i, OUTPUT);
    }
-   analogWrite(5, 0x800 + STARTOFFSET);
-   analogWrite(6, 0x800 + STARTOFFSET);
+   analogWrite(5, 0x700 + achse0_start);
+   
+   analogWrite(6, 0x700 + achse0_start);
    
 }
 
 // Add loop code
 void loop()
 {
+   if (sinceblink > 1000)
+   {
+      sinceblink = 0;
+      digitalWriteFast(LOOPLED, !digitalReadFast(LOOPLED));
+   }
    int n;
    n = RawHID.recv(buffer, 10); // 0 timeout = do not wait
    if (n > 0) 
@@ -109,61 +135,120 @@ void loop()
       // other 63 bytes!
       //Serial.print(F("Received packet, erstes byte: "));
       //Serial.println((int)buffer[0]);
-  //    for (int i=0; i<16; i++) 
-  //    {
+      for (int i=0; i<8; i++) 
+      {
   //       int b = buffer[0] & (1 << i);
- //        Serial.print((int)buffer[i]);
- //        Serial.print("\t");
- //        digitalWrite(i, b);
-  //    }
-      //Serial.println();
+  //       Serial.print((int)buffer[i]);
+  //       Serial.print("\t");
+         //digitalWrite(i, b);
+      }
+ //     Serial.println();
       uint16_t hb = (uint16_t)buffer[4];
       uint16_t lb = (uint16_t)buffer[5];
  //     Serial.print(hb);
  //     Serial.print("\t");
  //     Serial.print(lb);
  //     Serial.println();
+      usbtask = buffer[0];
+      Serial.print("usbtask ");
+      Serial.println(usbtask);
       
-      pot0 = hb <<8 | lb;
-      analogWrite(5, pot0 + STARTOFFSET);
+      //usbtask = SET_0;
+      switch (usbtask)
+      {
+         case SET_0: // data
+         {
+            teensytask = 0;
+            pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+            analogWrite(5, pot0 + achse0_start);
+            
+            pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+            analogWrite(6, pot1 + achse0_start);
+            //pot0 = (buffer[4])<<8 + buffer[5];
+            
+            Serial.print("Pot 0: ");
+            Serial.print((int)pot0);
+            Serial.print("\t");
+            Serial.print("Pot 1: ");
+            Serial.print((int)pot1);
+            
+            //    Serial.print(buffer[4]);
+            //    Serial.print("\t");
+            //    Serial.print(buffer[5]);
+            //    Serial.print("\t");
+            Serial.println();
+
+         }break;
+         case SIN_START: // sinus
+         {
+            sinms = 0;
+            teensytask = SIN_START;
+            Serial.print("teensytask: ");
+            Serial.println((int)teensytask);
+         }break;
+         case SIN_STOP:
+         {
+            teensytask = SET_0;
+         }
+      }// switch
+   } // n>0
+   
+   
+   if (teensytask == SIN_START)
+   {
+      if (sinms > 10)
+      {
+         sinms = 0;
+         //float tempsin = 0x800 + achse0_start + 1000 * sin(sinpos/180*pi);
+        float tempsin0 = 0x800 + achse0_start + 0x800 * sin(sinpos/180*pi);
+         Serial.print("Sin Pot0: ");
+         //Serial.print((int)sinpos);
+         Serial.print("\t");
+         Serial.print((int)tempsin0);
+         
+         
+         analogWrite(6, (int)tempsin0);
+         
+         float tempsin1 = 0x800 + achse0_start + 0x800 * sin(1.7*sinpos/180*pi);
+         analogWrite(5, (int)tempsin1);
+         Serial.print("\t");
+         Serial.print((int)tempsin1);
       
-      pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-      analogWrite(6, pot1 + STARTOFFSET);
-      //pot0 = (buffer[4])<<8 + buffer[5];
-      Serial.print("Pot0: ");
-      Serial.print((int)pot0);
-      Serial.print("\t");
-      Serial.print((int)pot1);
-//           Serial.print(buffer[4]);
- //          Serial.print("\t");
- //         Serial.print(buffer[5]);
-      //    Serial.print("\t");
-      
-    
-      Serial.println();
+         Serial.println();
+         sinpos += 1;
+         
+      }
    }
+    
+   
    // every 2 seconds, send a packet to the computer
-   if (msUntilNextSend > 2000) {
+   if (msUntilNextSend > 2000) 
+   {
       msUntilNextSend = msUntilNextSend - 2000;
+      /*
       // first 2 bytes are a signature
-      buffer[0] = 0xAB;
-      buffer[1] = 0xCD;
+      buffer[10] = 0xAB;
+      buffer[11] = 0xCD;
       // next 24 bytes are analog measurements
-      for (int i=0; i<12; i++) {
+      for (int i=5; i<12; i++) 
+      {
          int val = analogRead(i);
          buffer[i * 2 + 2] = highByte(val);
          buffer[i * 2 + 3] = lowByte(val);
       }
       // fill the rest with zeros
-      for (int i=26; i<62; i++) {
+      for (int i=26; i<62; i++) 
+      {
          buffer[i] = 0;
       }
       // and put a count of packets sent at the end
       buffer[62] = highByte(packetCount);
       buffer[63] = lowByte(packetCount);
+      */
       // actually send the packet
       n = RawHID.send(buffer, 100);
-      if (n > 0) {
+      if (n > 0) 
+      {
          Serial.print(F("Transmit packet "));
          Serial.println(packetCount );
          packetCount = packetCount + 1;
