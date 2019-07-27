@@ -69,8 +69,18 @@ uint16_t achse1_start = ACHSE1_START;
 uint16_t achse1_max = ACHSE1_MAX;
 
 
+#define  ACHSE2_BYTE_H  16
+#define  ACHSE2_BYTE_L  17
+
+
+#define  ACHSE3_BYTE_H  18
+#define  ACHSE3_BYTE_L  19
+
+
+
 #define SET_0  0xA1
 #define SET_1   0xB1
+#define SET_ROB 0xA2
 //let GET_U:UInt8 = 0xA2
 //let GET_I:UInt8 = 0xB2
 
@@ -80,7 +90,7 @@ elapsedMillis sinceblink;
 float sinpos = 0;
 #define pi 3.14
 #define SIN_START   0xC0
-#define SIN_STOP   0xC1
+#define SIN_STOP   0xE1
 
 
 #define LOOPLED 13
@@ -162,8 +172,8 @@ void loop()
             pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
             analogWrite(5, pot0 + achse0_start);
             
-            pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-            analogWrite(6, pot1 + achse0_start);
+   //         pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+   //         analogWrite(6, pot1 + achse0_start);
             //pot0 = (buffer[4])<<8 + buffer[5];
             
             Serial.print("Pot 0: ");
@@ -179,6 +189,49 @@ void loop()
             Serial.println();
 
          }break;
+            
+         case SET_1: // data
+         {
+            teensytask = 0;
+  //          pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+  //          analogWrite(5, pot0 + achse0_start);
+            
+            pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+            analogWrite(6, pot1 + achse0_start);
+            //pot0 = (buffer[4])<<8 + buffer[5];
+            
+            Serial.print("Pot 0: ");
+            Serial.print((int)pot0);
+            Serial.print("\t");
+            Serial.print("Pot 1: ");
+            Serial.print((int)pot1);
+            
+            //    Serial.print(buffer[4]);
+            //    Serial.print("\t");
+            //    Serial.print(buffer[5]);
+            //    Serial.print("\t");
+            Serial.println();
+            
+         }break;
+            
+         case SET_ROB:
+         {
+            teensytask = 0;
+            pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+            analogWrite(5, pot0 + achse0_start);
+            
+            pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+            analogWrite(6, pot1 + achse1_start);
+            
+            Serial.print("Pot 0: ");
+            Serial.print((int)pot0);
+            Serial.print("\t");
+            Serial.print("Pot 1: ");
+            Serial.print((int)pot1);
+            Serial.println();
+
+         }break;
+            
          case SIN_START: // sinus
          {
             sinms = 0;
@@ -222,7 +275,7 @@ void loop()
     
    
    // every 2 seconds, send a packet to the computer
-   if (msUntilNextSend > 2000) 
+   if (msUntilNextSend > 4000) 
    {
       msUntilNextSend = msUntilNextSend - 2000;
       /*
