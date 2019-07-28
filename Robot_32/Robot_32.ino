@@ -62,7 +62,7 @@ uint16_t pot3 = 0;
 uint16_t achse0_start = ACHSE0_START;
 uint16_t achse0_max = ACHSE0_MAX;
 
-#define ACHSE1_START  0x780 // Startwert low
+#define ACHSE1_START  0x680 // Startwert low
 #define ACHSE1_MAX  0xFFF // Startwert high
 
 uint16_t achse1_start = ACHSE1_START;
@@ -73,13 +73,24 @@ uint16_t achse1_max = ACHSE1_MAX;
 #define  ACHSE2_BYTE_L  17
 
 
+#define ACHSE3_START  0x780 // Startwert low
+#define ACHSE3_MAX  0xFFF // Startwert high
+
 #define  ACHSE3_BYTE_H  18
 #define  ACHSE3_BYTE_L  19
 
+uint16_t achse3_start = ACHSE3_START;
+uint16_t achse3_max = ACHSE3_MAX;
 
 
-#define SET_0  0xA1
+#define SET_0     0xA1
+#define GOTO_0    0xAA
 #define SET_1   0xB1
+#define GOTO_1 0xBA
+#define SET_2   0xC1
+#define GOTO_2 0xCA
+#define SET_3   0xD1
+#define GOTO_3 0xDA
 #define SET_ROB 0xA2
 //let GET_U:UInt8 = 0xA2
 //let GET_I:UInt8 = 0xB2
@@ -89,7 +100,7 @@ elapsedMillis sinms;
 elapsedMillis sinceblink;
 float sinpos = 0;
 #define pi 3.14
-#define SIN_START   0xC0
+#define SIN_START   0xE0
 #define SIN_STOP   0xE1
 
 
@@ -122,9 +133,26 @@ void setup()
    {
       pinMode(i, OUTPUT);
    }
-   analogWrite(5, 0x700 + achse0_start);
+   #define  ACHSE3_BYTE_H  18
+   #define  ACHSE3_BYTE_L  19
+
+   #define  achse0_PIN 5
+   #define  achse1_PIN 6
+   #define  achse2_PIN 9
+   #define  achse3_PIN 10
    
-   analogWrite(6, 0x700 + achse0_start);
+   pinMode(achse0_PIN, OUTPUT);
+   pinMode(achse1_PIN, OUTPUT);
+   
+   pinMode(achse3_PIN, OUTPUT);
+    
+//   analogWrite(achse0_PIN, 0x700 + achse0_start);
+   analogWrite(achse0_PIN,0xCCC + achse0_start); // Mitte
+   
+//   analogWrite(achse1_PIN, 0x700 + achse1_start);
+   analogWrite(achse1_PIN, 0xCCC + achse1_start); // Mitte
+   
+   analogWrite(achse3_PIN, 0xCCC + achse3_start);
    
 }
 
@@ -197,7 +225,7 @@ void loop()
   //          analogWrite(5, pot0 + achse0_start);
             
             pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-            analogWrite(6, pot1 + achse0_start);
+            analogWrite(6, pot1 + achse1_start);
             //pot0 = (buffer[4])<<8 + buffer[5];
             
             Serial.print("Pot 0: ");
@@ -205,6 +233,27 @@ void loop()
             Serial.print("\t");
             Serial.print("Pot 1: ");
             Serial.print((int)pot1);
+            
+            //    Serial.print(buffer[4]);
+            //    Serial.print("\t");
+            //    Serial.print(buffer[5]);
+            //    Serial.print("\t");
+            Serial.println();
+            
+         }break;
+
+         case SET_3: // data
+         {
+            teensytask = 0;
+            //          pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+            //          analogWrite(5, pot0 + achse0_start);
+            
+            pot3 = (uint16_t)buffer[ACHSE3_BYTE_H] << 8 | (uint16_t)buffer[ACHSE3_BYTE_L];
+            analogWrite(achse3_PIN, pot3 + achse3_start);
+            //pot0 = (buffer[4])<<8 + buffer[5];
+            
+            Serial.print("Pot 3: ");
+            Serial.print((int)pot3);
             
             //    Serial.print(buffer[4]);
             //    Serial.print("\t");
@@ -243,17 +292,18 @@ void loop()
          {
             teensytask = SET_0;
          }
+            
       }// switch
    } // n>0
    
    
    if (teensytask == SIN_START)
    {
-      if (sinms > 10)
+      if (sinms > 5)
       {
          sinms = 0;
          //float tempsin = 0x800 + achse0_start + 1000 * sin(sinpos/180*pi);
-        float tempsin0 = 0x800 + achse0_start + 0x800 * sin(sinpos/180*pi);
+        float tempsin0 = 0xCCC + achse0_start   + 0x400 * sin(0.5*sinpos/180*pi);
          Serial.print("Sin Pot0: ");
          //Serial.print((int)sinpos);
          Serial.print("\t");
@@ -262,8 +312,8 @@ void loop()
          
          analogWrite(6, (int)tempsin0);
          
-         float tempsin1 = 0x800 + achse0_start + 0x800 * sin(1.7*sinpos/180*pi);
-         analogWrite(5, (int)tempsin1);
+         float tempsin1 = 0xCCC + achse0_start + 0x400 * sin((0.2*sinpos)/180*pi);
+         analogWrite(achse3_PIN, (int)tempsin1);
          Serial.print("\t");
          Serial.print((int)tempsin1);
       
