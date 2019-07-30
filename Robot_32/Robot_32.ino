@@ -198,10 +198,10 @@ void loop()
          {
             teensytask = 0;
             pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
-            analogWrite(5, pot0 + achse0_start);
+            analogWrite(achse0_PIN, pot0 + achse0_start);
             
    //         pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-   //         analogWrite(6, pot1 + achse0_start);
+   //         analogWrite(achse1_PIN, pot1 + achse0_start);
             //pot0 = (buffer[4])<<8 + buffer[5];
             
             Serial.print("Pot 0: ");
@@ -216,6 +216,19 @@ void loop()
             //    Serial.print("\t");
             Serial.println();
 
+         }break;
+            
+         case GOTO_0:
+         {
+            uint16_t goto0x = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+            analogWrite(achse0_PIN, goto0x + achse0_start);
+
+            uint16_t goto0y = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+            analogWrite(achse1_PIN, goto0y + achse1_start);
+           
+            
+            // achse0_PIN
+            
          }break;
             
          case SET_1: // data
