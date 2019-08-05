@@ -20,6 +20,7 @@
 
 #include "Arduino.h"
 
+#include "rRingbuffer.c"
 // Set parameters
 
 
@@ -72,6 +73,11 @@ uint16_t achse1_max = ACHSE1_MAX;
 #define  ACHSE2_BYTE_H  16
 #define  ACHSE2_BYTE_L  17
 
+#define ACHSE2_START  0x680 // Startwert low
+#define ACHSE2_MAX  0xFFF // Startwert high
+
+uint16_t achse2_start = ACHSE2_START;
+uint16_t achse2_max = ACHSE2_MAX;
 
 #define ACHSE3_START  0x780 // Startwert low
 #define ACHSE3_MAX  0xFFF // Startwert high
@@ -81,6 +87,13 @@ uint16_t achse1_max = ACHSE1_MAX;
 
 uint16_t achse3_start = ACHSE3_START;
 uint16_t achse3_max = ACHSE3_MAX;
+
+#define   HYP_BYTE_H  22 // Hypotenuse
+#define   HYP_BYTE_L  23
+
+#define   INDEX_BYTE_H  24
+#define   INDEX_BYTE_L  25
+
 
 
 #define SET_0     0xA1
@@ -92,12 +105,18 @@ uint16_t achse3_max = ACHSE3_MAX;
 #define SET_3   0xD1
 #define GOTO_3 0xDA
 #define SET_ROB 0xA2
+#define SET_RING  0xA3
+#define CLEAR_RING  0xA4
+
+
 //let GET_U:UInt8 = 0xA2
 //let GET_I:UInt8 = 0xB2
 
 // sinus
 elapsedMillis sinms;
 elapsedMillis sinceblink;
+
+
 float sinpos = 0;
 #define pi 3.14
 #define SIN_START   0xE0
@@ -106,14 +125,57 @@ float sinpos = 0;
 
 #define LOOPLED 13
 
+char* buffercode[4] = {"BUFFER_FAIL","BUFFER_SUCCESS", "BUFFER_FULL", "BUFFER_EMPTY"};
+
 // Prototypes
 // !!! Help: http://bit.ly/2l0ZhTa
 
 
 // Utilities
+Buffer rb;
+elapsedMillis sinceringbuffer;
 
+uint16_t schrittecount = 0;
+uint16_t anzschritte = 0;
+uint16_t schrittweite = 16;
+uint16_t wegindex = 0;
+
+robotposition aktuellepos;
+float deltax;
+float deltay;
+float deltaz;
+robotposition lastpos;
 
 // Functions
+uint8_t ringbufferIn(struct robotposition pos);
+uint8_t ringbufferClear(void);
+
+
+/*
+uint8_t ringbufferIn(struct robotposition pos)
+{
+   uint8_t next = ((ringbuffer.write + 1) & BUFFER_MASK);
+   if (ringbuffer.read == next)
+      return BUFFER_FAIL; // voll
+   ringbuffer.position[ringbuffer.write] = pos;
+   ringbuffer.write = next;
+   return BUFFER_SUCCESS;
+}
+*/
+
+struct robotposition erstepos = {0,0,0,0,0,0};
+
+
+void printHex8(uint8_t data) // prints 8-bit data in hex with leading zeroes
+{
+   Serial.print("0x"); 
+  // for (int i=0; i<length; i++) 
+   { 
+      if (data<0x10) {Serial.print("0");} 
+      Serial.print(data,HEX); 
+      Serial.println(" "); 
+   }
+}
 
 
 // Add setup code
@@ -122,6 +184,38 @@ void setup()
    Serial.begin(9600);
    analogWriteResolution(16); // 32767
    
+   /*
+    struct robotposition
+    {
+    uint16_t x;
+    uint16_t y;
+    uint16_t z;
+   
+    uint16_t hyp;
+   uint16_t index;
+    };
+    
+    */
+   
+   
+   ringbuffer.position[0].x = 0;
+   ringbuffer.position[0].y = 0;
+   ringbuffer.position[0].z = 0;
+   ringbuffer.position[0].hyp = 0;
+   ringbuffer.write = 0;
+   ringbuffer.read = 0;
+   ringbuffer.position[0].task = 0;
+   
+     
+   /*
+   uint8_t erfolg = ringbufferIn(erstepos);
+   
+   uint16_t anz = ringbufferCount();
+   Serial.print("erfolg: ");
+   Serial.print(erfolg);
+   Serial.print(" anzahl: ");
+   Serial.print(anz);
+   */
    pinMode(LOOPLED, OUTPUT);
    
    // FTM0   Pins: 5, 6, 9, 10, 20, 21, 22, 23
@@ -152,7 +246,7 @@ void setup()
 //   analogWrite(achse1_PIN, 0x700 + achse1_start);
    analogWrite(achse1_PIN, 0xCCC + achse1_start); // Mitte
    
-   analogWrite(achse3_PIN, 0xCCC + achse3_start);
+ //  analogWrite(achse3_PIN, 0xCCC + achse3_start);
    
 }
 
@@ -163,6 +257,20 @@ void loop()
    {
       sinceblink = 0;
       digitalWriteFast(LOOPLED, !digitalReadFast(LOOPLED));
+      
+      /*
+      uint8_t erfolg = ringbufferIn(erstepos);
+      
+      uint16_t anz = ringbufferCount();
+      Serial.print("erfolg: ");
+      Serial.print(erfolg);
+      Serial.print(" anzahl: ");
+      Serial.print(anz);
+      Serial.print(" read: ");
+      Serial.print(ringbuffer.read);
+      Serial.print(" write: ");
+      Serial.println(ringbuffer.write);
+      */
    }
    int n;
    n = RawHID.recv(buffer, 10); // 0 timeout = do not wait
@@ -187,9 +295,11 @@ void loop()
  //     Serial.print("\t");
  //     Serial.print(lb);
  //     Serial.println();
+      
       usbtask = buffer[0];
-      Serial.print("usbtask ");
-      Serial.println(usbtask);
+      Serial.println(" ");
+      Serial.print("******************  usbtask *** ");
+      printHex8(usbtask);
       
       //usbtask = SET_0;
       switch (usbtask)
@@ -207,8 +317,8 @@ void loop()
             Serial.print("Pot 0: ");
             Serial.print((int)pot0);
             Serial.print("\t");
-            Serial.print("Pot 1: ");
-            Serial.print((int)pot1);
+//            Serial.print("Pot 1: ");
+//            Serial.print((int)pot1);
             
             //    Serial.print(buffer[4]);
             //    Serial.print("\t");
@@ -228,7 +338,220 @@ void loop()
            
             
             // achse0_PIN
+  
             
+         }break;
+ 
+#pragma mark SET_RING
+         case SET_RING:
+         {
+            /*
+             struct robotposition
+             {
+             uint16_t x;
+             uint16_t y;
+             uint16_t z;
+             uint16_t hyp;
+             uint16_t index;
+             uint8_t usbtask;
+             };
+             
+             */
+             Serial.println(" SET_RING ");
+            struct robotposition p;
+            p.x = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            p.y = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
+    //        p.z = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            p.task = SET_RING; 
+            // HYP_BYTE_H
+            p.hyp = (uint16_t)buffer[HYP_BYTE_H] << 8 | (uint16_t)buffer[HYP_BYTE_L];
+            
+            // Position in Ringbuffer
+            p.index = (uint16_t)buffer[INDEX_BYTE_H] << 8 | (uint16_t)buffer[INDEX_BYTE_L];
+            
+            // pos in ringbuffer
+            Serial.print(" vor  ringbufferIn");
+            Serial.print(" read: ");
+            Serial.print(ringbuffer.read);
+            Serial.print(" write: "); // NACH ringbufferIn
+            Serial.println(ringbuffer.write);
+            
+            // einsetzen in ringbuffer
+            uint8_t erfolg = ringbufferIn(p); 
+            
+            //Serial.print(" in erfolg: ");
+            //Serial.print(buffercode[erfolg]);
+            
+            //Serial.print(" nach  ringbufferIn");
+            //uint16_t anz = ringbufferCount();
+            
+           /*
+            Serial.print(" anzahl: ");
+            Serial.print(anz);
+            Serial.print(" read: ");
+            Serial.print(ringbuffer.read);
+            Serial.print(" write: "); // NACH ringbufferIn
+            Serial.print(ringbuffer.write);
+            */
+            uint16_t hyp = (uint16_t)buffer[HYP_BYTE_H] << 8 | (uint16_t)buffer[HYP_BYTE_L];
+            Serial.print(" hyp: ");
+            Serial.println(hyp);
+
+            //           if (ringbuffer.write > 1) // mindestens zwei Punkte: Zwischenschritte berechnen
+            
+            // Schritte berechnen
+            
+            if (hyp == 0) // Start Polynom
+            {
+               Serial.print("********************   ");
+               Serial.print("ringbuffer start");
+               // pos 0 lesen: lastx Anfang
+               uint8_t erfolg = ringbufferOut(&lastpos);
+               Serial.print(" out erfolg: ");
+               Serial.print(buffercode[erfolg]);
+
+               uint16_t lastx = lastpos.x;
+               uint16_t lasty = lastpos.y;
+               uint16_t lastz = lastpos.z;
+               uint16_t hyp = lastpos.hyp;
+               wegindex = lastpos.index;
+               Serial.print(" last x: ");
+               Serial.print(lastx);
+               Serial.print(" last y: ");
+               Serial.print(lasty);
+               Serial.print(" last z: ");
+               Serial.print(lastz);
+               Serial.print(" hyp: ");
+               Serial.print(hyp);
+ 
+               /*
+               Serial.println("hyp=0");
+               Serial.print(" ****************** read: ");
+               Serial.print(ringbuffer.read);
+               Serial.print(" ****************** write: ");
+               Serial.println(ringbuffer.write);
+               
+               
+               
+               */
+               Serial.print(" wegindex: ");
+               Serial.println(wegindex);
+               
+               
+
+               
+               //lastpos = ringbuffer.position[0];
+               
+               analogWrite(achse0_PIN, lastx + achse0_start);
+               analogWrite(achse1_PIN, lasty + achse1_start);
+    //           analogWrite(achse2_PIN, lastz + achse2_start);
+               schrittecount = 0;
+            }
+            else
+               
+            {
+               Serial.print("============================   ");
+               Serial.println("ringbuffer set punkt");
+               anzschritte = hyp / schrittweite;
+               uint16_t lastx = ringbuffer.position[ringbuffer.write-2].x;
+               uint16_t lasty = ringbuffer.position[ringbuffer.write-2].y;
+               uint16_t lastz = 0;//ringbuffer.position[ringbuffer.write-2].z;
+               
+               uint16_t newx = ringbuffer.position[ringbuffer.write-1].x; // neuer Wert ist schon in ringbuffer, write ist incrementiert
+               uint16_t newy = ringbuffer.position[ringbuffer.write-1].y;
+               uint16_t newz = 0;//ringbuffer.position[ringbuffer.write-1].z;
+               wegindex = lastpos.index;
+               Serial.print("last x: ");
+               Serial.print(lastx);
+               Serial.print(" last y: ");
+               Serial.print(lasty);
+               Serial.print(" last z: ");
+               Serial.print(lastz);
+               Serial.print(" * new x : ");
+               Serial.print(newx);
+               Serial.print(" new y: ");
+               Serial.print(newy);
+               Serial.print(" new z: ");
+               Serial.print(newz);
+               
+               /*
+                // new
+               Serial.print("x: ");
+               Serial.print(p.x);
+               Serial.print(" y: ");
+               Serial.print(p.y);
+               Serial.print(" z: ");
+               Serial.println(p.z);
+               */
+               Serial.print(" hypotenuse: ");
+               Serial.print(hyp);
+               Serial.print(" anzschritte: ");
+               Serial.println(anzschritte);
+               
+               /*
+               Serial.println("hyp  not 0");
+               Serial.print(" ****************** read: ");
+               Serial.print(ringbuffer.read);
+               Serial.print(" ****************** write: ");
+               Serial.println(ringbuffer.write);
+                */
+            }
+            
+            
+         }break;
+
+#pragma mark CLEAR_RING            
+         case CLEAR_RING:
+         {
+            ringbufferClear();
+ 
+            //schrittecount = 0;
+            deltax = 0;
+            deltay = 0;
+            deltaz = 0;
+            
+            anzschritte = 0;
+            
+            /*
+            struct robotposition p;
+            p.x = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            p.y = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
+            p.z = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            
+            // HYP_BYTE_H
+            p.hyp = (uint16_t)buffer[HYP_BYTE_H] << 8 | (uint16_t)buffer[HYP_BYTE_L];
+            
+            // Position in Ringbuffer
+            p.index = (uint16_t)buffer[INDEX_BYTE_H] << 8 | (uint16_t)buffer[INDEX_BYTE_L];
+   //         lastpos = p;
+  //          aktuellepos = p;
+            // pos in ringbuffer
+            
+            //
+            
+            ringbuffer.position[0].x = 0;
+            ringbuffer.position[0].y = 0;
+            ringbuffer.position[0].z = 0;
+            ringbuffer.position[0].hyp = 0;
+            ringbuffer.write = 0;
+            ringbuffer.read = 0;
+            ringbuffer.position[0].task = 0;
+
+            //
+    //        uint8_t erfolg = ringbufferIn(p); //
+             
+            
+            uint16_t anz = ringbufferCount();
+            Serial.print("ringbuffer clear anz: ");
+            Serial.print(anz);
+            Serial.print(" p x: ");
+            Serial.print(p.x);
+            Serial.print(" p y: ");
+            Serial.print(p.y);
+            Serial.print(" p z: ");
+            Serial.print(p.z);
+             */
+          
          }break;
             
          case SET_1: // data
@@ -239,11 +562,14 @@ void loop()
             
             pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
             analogWrite(6, pot1 + achse1_start);
+
+            pot2 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
+    //        analogWrite(6, pot2 + achse1_start);
             //pot0 = (buffer[4])<<8 + buffer[5];
             
-            Serial.print("Pot 0: ");
-            Serial.print((int)pot0);
-            Serial.print("\t");
+  //          Serial.print("Pot 0: ");
+ //           Serial.print((int)pot0);
+ //           Serial.print("\t");
             Serial.print("Pot 1: ");
             Serial.print((int)pot1);
             
@@ -335,9 +661,127 @@ void loop()
          
       }
    }
-    
+#pragma mark sinceringbuffer    
+   if (sinceringbuffer > 16) // naechster Schritt
+   {
+      sinceringbuffer = 0;
+      
+      //if (schrittecount == 0)
+      if ((schrittecount < anzschritte )  && (usbtask == SET_RING))
+      {
+         /*
+         Serial.print(" schrittecount: ");
+         Serial.print(schrittecount);
+         Serial.print(" anzschritte: ");
+         Serial.println(anzschritte);
+
+         
+
+         Serial.println("loop A");
+         Serial.print(" ****************** read: ");
+         Serial.print(ringbuffer.read);
+         Serial.print(" ****************** write: ");
+         Serial.println(ringbuffer.write);
+          */
+         if (schrittecount == 0)
+         {
+            uint8_t erfolg = ringbufferOut(&aktuellepos);
+            Serial.print("\n *** schrittecount = 0 erfolg: ");
+            Serial.println(buffercode[erfolg]);
+            Serial.print(" aktuellepos x: ");
+            Serial.print(aktuellepos.x);
+            Serial.print(" aktuellepos y: ");
+            Serial.print(aktuellepos.y);
+            Serial.print(" aktuellepos z: ");
+            Serial.print(aktuellepos.z);
+            Serial.print(" aktuellepos hyp: ");
+            Serial.print(aktuellepos.hyp);
+            Serial.print(" aktuellepos task: ");
+            Serial.print(aktuellepos.task);
+            
+            Serial.print(" aktuellepos index: ");
+            Serial.println(aktuellepos.index);
+            // Schrittweiten:
+            deltax = float(aktuellepos.x - lastpos.x) / anzschritte;
+            deltay = float(aktuellepos.y - lastpos.y) / anzschritte;
+            deltaz = float(aktuellepos.z - lastpos.z) / anzschritte;
+            Serial.print(" delta x: ");
+            Serial.print(deltax);
+            Serial.print(" delta y: ");
+            Serial.print(deltay);
+            Serial.print(" delta z: ");
+            Serial.println(deltaz);
+            
+         }
+          
+         schrittecount++;
+ 
+         if ((schrittecount < 5) || (schrittecount > (anzschritte - 5)))
+         {
+ //        Serial.println("");
+         Serial.print("ringbuffer cont schrittecount: ");
+         Serial.print(schrittecount);
+ //        Serial.print(" lastpos x: ");
+ //        Serial.print(lastpos.x);
+ //        Serial.print(" lastpos y: ");
+ //        Serial.print(lastpos.y);
+ //        Serial.print(" lastpos z: ");
+ //        Serial.print(lastpos.z);
+         
+ //        Serial.print("lastpos hyp: ");
+         
+//         Serial.print(lastpos.hyp);
+         Serial.print("\t index: \t");
+         Serial.print(lastpos.index);
+         Serial.print(" \ttask: \t");
+         Serial.print(lastpos.task);
+        
+   //      robotposition temppos = {lastpos.x + schrittecount * deltax, lastpos.y + schrittecount * deltay, lastpos.z + schrittecount * deltaz,}
+        
+         
+         
+ //        Serial.println("***");
+         Serial.print(" \tdx: \t");
+         Serial.print(lastpos.x + schrittecount * deltax);
+         Serial.print("  \tdy: \t");
+         Serial.print(lastpos.y + schrittecount * deltay);
+         Serial.print("  \tdz: \t");
+         Serial.println(lastpos.z + schrittecount * deltaz);
+         }
+ 
+         analogWrite(achse0_PIN, lastpos.x + schrittecount * deltax + achse0_start);
+         analogWrite(achse1_PIN, lastpos.y + schrittecount * deltay + achse1_start);
+   //      analogWrite(achse2_PIN, lastpos.z + schrittecount * deltaz + achse2_start);
+         
+         
+         
+      }
+      else
+      {
+ //     Serial.print("ringbuffer count: ");
+ //     Serial.println(ringbufferCount());
+         
+         /*
+      robotposition r;
+      uint8_t erfolg = ringbufferOut(&r);
+         
+      Serial.print("erfolg: ");
+      Serial.print(erfolg);
+      Serial.print("x: ");
+      Serial.print(r.x);
+      Serial.print(" y: ");
+      Serial.print(r.y);
+      Serial.print(" hyp: ");
+      Serial.print(r.hyp);
+      Serial.print(" index: ");
+      Serial.println(r.index);
+          */
+     }
+          
    
-   // every 2 seconds, send a packet to the computer
+   }
+   
+   // every 4 seconds, send a packet to the computer
    if (msUntilNextSend > 4000) 
    {
       msUntilNextSend = msUntilNextSend - 2000;
@@ -365,8 +809,8 @@ void loop()
       n = RawHID.send(buffer, 100);
       if (n > 0) 
       {
-         Serial.print(F("Transmit packet "));
-         Serial.println(packetCount );
+ //        Serial.print(F("Transmit packet "));
+ //        Serial.println(packetCount );
          packetCount = packetCount + 1;
       } else 
       {
