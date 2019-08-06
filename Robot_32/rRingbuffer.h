@@ -15,7 +15,9 @@
 #define BUFFER_SUCCESS  1
 #define BUFFER_FULL  2
 #define BUFFER_EMPTY 3
-#define BUFFER_SIZE 256 // muss 2^n betragen (8, 16, 32, 64 ...)
+#define END_TASK  4
+
+#define BUFFER_SIZE 1024 // muss 2^n betragen (8, 16, 32, 64 ...)
 #define BUFFER_MASK (BUFFER_SIZE-1) // Klammern auf keinen Fall vergessen
 
 
@@ -26,6 +28,7 @@ struct robotposition
    uint16_t y;
    uint16_t z;
    uint16_t hyp;
+   uint16_t steps;
    uint16_t index;
    uint8_t task;
 };
