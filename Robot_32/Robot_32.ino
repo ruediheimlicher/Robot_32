@@ -109,6 +109,12 @@ uint16_t achse3_max = ACHSE3_MAX;
 #define SET_ROB 0xA2
 #define SET_RING  0xA3
 #define CLEAR_RING  0xA4
+#define END_RING  0xA5
+
+
+uint8_t ringbufferstatus = 0;
+#define RING_FIRST   1
+#define RING_CONT    2
 
 
 //let GET_U:UInt8 = 0xA2
@@ -379,6 +385,11 @@ void loop()
             // Anzahl Pfadelemente im Bezierpath
             p.index = (uint16_t)buffer[INDEX_BYTE_H] << 8 | (uint16_t)buffer[INDEX_BYTE_L];
             
+            if (p.index == 0) // Start 
+            {
+               ringbufferstatus |= (1<<RING_FIRST);
+            }
+            
             // pos in ringbuffer
             Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> vor  ringbufferIn");
              Serial.print(" read: ");
@@ -400,6 +411,9 @@ void loop()
             Serial.print(" in erfolg: ");
             Serial.print(buffercode[erfolg]);
             
+            Serial.print(" anzschritte: ");
+            Serial.print(anzschritte);
+
             //Serial.print(" nach  ringbufferIn");
             uint16_t anz = ringbufferCount();
             
@@ -419,6 +433,7 @@ void loop()
             if (p.hyp == 0) // Start Polynom
             {
                wegstatus = 0;
+               
                Serial.println("");
                Serial.print("********************   ");
                Serial.print("ringbuffer start");
@@ -485,7 +500,7 @@ void loop()
             {
                Serial.println("");
                Serial.print("============================   ");
-               Serial.println("ringbuffer set punkt");
+               Serial.println("ringbuffer set punkt"); // neuen Punkt setzen. Endpunkt des ersten Elements oder des nächsten
                //anzschritte = p.hyp / schrittweite;
                uint16_t lastx = ringbuffer.position[ringbuffer.write-2].x;
                uint16_t lasty = ringbuffer.position[ringbuffer.write-2].y;
@@ -535,7 +550,7 @@ void loop()
                
                Serial.print(" p anzschritte: ");
                Serial.println(p.steps);
-               anzschritte = p.steps;
+               //anzschritte = p.steps;
                /*
                Serial.println("hyp  not 0");
                Serial.print(" ****************** read: ");
@@ -710,7 +725,7 @@ void loop()
       }
    }
 #pragma mark sinceringbuffer    
-   if (sinceringbuffer > 32) // naechster Schritt
+   if ((sinceringbuffer > 32))// && (usbtask == SET_RING)) // naechster Schritt
    {
       sinceringbuffer = 0;
       //     Serial.print(" abschnittindex: ");
@@ -731,11 +746,84 @@ void loop()
      //    Serial.print(lastpos.steps);
     //    Serial.print(" aktuellepos steps: ");
     //     Serial.println(aktuellepos.steps);
+         
+         // **************
+         if ((schrittecount == 0)  && (!(usbtask == END_RING)))
+         {
+            /*
+            Serial.print("usbtask: ");
+            Serial.println(usbtask);
+            if (wegstatus & (1<<WEG_END))
+            {
+               Serial.println("WEG_END da");
+               
+            }
+            else
+            {
+               Serial.println("WEG_END nicht da");
+            }
+             */
+            uint8_t erfolg = ringbufferOut(&aktuellepos);
+            Serial.print("*** schrittecount = 0 out-erfolg: ");
+            Serial.print(buffercode[erfolg]);
+            if ((erfolg == 1))
+            {
+               wegstatus |= (1<<WEG_OK);
+               //
+               wegstatus &= ~(1<<WEG_END);
+               
+               
+               Serial.print(" aktuellepos x: ");
+               Serial.print(aktuellepos.x);
+               Serial.print(" aktuellepos y: ");
+               Serial.print(aktuellepos.y);
+               Serial.print(" aktuellepos z: ");
+               Serial.print(aktuellepos.z);
+               Serial.print(" aktuellepos hyp: ");
+               Serial.print(aktuellepos.hyp);
+               Serial.print(" aktuellepos task: ");
+               Serial.print(aktuellepos.task);
+               anzschritte = aktuellepos.hyp / schrittweite;
+               Serial.print(" anzschritte: ");
+               Serial.print(anzschritte);
+               Serial.print(" aktuellepos steps: ");
+               Serial.print(aktuellepos.steps);
+               
+               
+               Serial.print(" aktuellepos index: ");
+               Serial.println(aktuellepos.index);
+               
+               
+               // Schrittweiten:
+               deltax = float(aktuellepos.x - lastpos.x) / anzschritte;
+               deltay = float(aktuellepos.y - lastpos.y) / anzschritte;
+               deltaz = float(aktuellepos.z - lastpos.z) / anzschritte;
+               Serial.print(" delta x: ");
+               Serial.print(deltax);
+               Serial.print(" delta y: ");
+               Serial.print(deltay);
+               Serial.print(" delta z: ");
+               Serial.println(deltaz);
+            }
+            else
+            {
+               wegstatus &= ~(1<<WEG_OK);
+               wegstatus |= (1<<WEG_END);
+               usbtask = END_RING;
+               Serial.print("\n *** WEG_END");
+               Serial.print(" wegstatus: ");
+               Serial.println(wegstatus);
+            }
+            
+         }
+
+         
+         // **************
 
          if ((schrittecount < anzschritte )   && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
       //   if ((schrittecount < lastpos.steps ) )//  && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
          {
-            
+            /*
             Serial.print(" abschnittindex: ");
             Serial.print(abschnittindex);
             
@@ -746,15 +834,16 @@ void loop()
              Serial.print(schrittecount);
              Serial.print(" anzschritte: ");
              Serial.println(anzschritte);
+             */
              
-             
-             
+             /*
              Serial.println("loop A");
              Serial.print(" ****************** read: ");
              Serial.print(ringbuffer.read);
              Serial.print(" ****************** write: ");
              Serial.println(ringbuffer.write);
-             
+             */
+            /*
             if (schrittecount == 0)
             {
                uint8_t erfolg = ringbufferOut(&aktuellepos);
@@ -807,10 +896,10 @@ void loop()
                }
                
             }
-            
+            */
             schrittecount++;
             
-      //      if ((schrittecount < 5) || (schrittecount > (anzschritte - 5)))
+            if ((schrittecount < 5) || (schrittecount > (anzschritte - 5)))
             {
                //        Serial.println("");
                //Serial.print("ringbuffer cont schrittecount: ");
@@ -841,8 +930,9 @@ void loop()
                Serial.print("\tdy:\t");
                Serial.print(lastpos.y + schrittecount * deltay);
                Serial.print("\tdz:\t");
-               Serial.println(lastpos.z + schrittecount * deltaz);
-               
+               Serial.print(lastpos.z + schrittecount * deltaz);
+               Serial.print(" anzschritte: ");
+               Serial.println(anzschritte);
                 
             }
             
@@ -855,7 +945,7 @@ void loop()
             {
                lastpos = aktuellepos;
                Serial.print(" ende Element  ");
-               Serial.println(lastpos.index);
+               Serial.print(lastpos.index);
                
                Serial.print(" lastpos daten  ");
                Serial.print(" lastpos x: ");
