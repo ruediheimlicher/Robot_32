@@ -21,6 +21,8 @@
 #include "Arduino.h"
 
 #include "rRingbuffer.c"
+
+#include "rWegbuffer.c"
 // Set parameters
 
 
@@ -49,11 +51,15 @@ uint16_t pot1 = 0;
 uint16_t pot2 = 0;
 uint16_t pot3 = 0;
 
-#define  ACHSE0_BYTE_H  4
-#define  ACHSE0_BYTE_L  5
+#define  ACHSE0_BYTE_H        4
+#define  ACHSE0_BYTE_L        5
+#define  ACHSE0_START_BYTE_H  6
+#define  ACHSE0_START_BYTE_L  7
 
-#define  ACHSE1_BYTE_H  6
-#define  ACHSE1_BYTE_L  7
+#define  ACHSE1_BYTE_H        11
+#define  ACHSE1_BYTE_L        12
+#define  ACHSE1_START_BYTE_H  13
+#define  ACHSE1_START_BYTE_L  14
 
 
 #define ACHSE0_START  0x680 // Startwert low
@@ -70,8 +76,11 @@ uint16_t achse1_start = ACHSE1_START;
 uint16_t achse1_max = ACHSE1_MAX;
 
 
-#define  ACHSE2_BYTE_H  16
-#define  ACHSE2_BYTE_L  17
+#define  ACHSE2_BYTE_H        17
+#define  ACHSE2_BYTE_L        18
+#define  ACHSE2_START_BYTE_H  19
+#define  ACHSE2_START_BYTE_L  20
+
 
 #define ACHSE2_START  0x680 // Startwert low
 #define ACHSE2_MAX  0xFFF // Startwert high
@@ -79,23 +88,25 @@ uint16_t achse1_max = ACHSE1_MAX;
 uint16_t achse2_start = ACHSE2_START;
 uint16_t achse2_max = ACHSE2_MAX;
 
-#define ACHSE3_START  0x780 // Startwert low
+#define ACHSE3_START  0x680 // Startwert low
 #define ACHSE3_MAX  0xFFF // Startwert high
 
-#define  ACHSE3_BYTE_H  18
-#define  ACHSE3_BYTE_L  19
+#define  ACHSE3_BYTE_H        23
+#define  ACHSE3_BYTE_L        24
+#define  ACHSE3_START_BYTE_H  25
+#define  ACHSE3_START_BYTE_L  26
 
 uint16_t achse3_start = ACHSE3_START;
 uint16_t achse3_max = ACHSE3_MAX;
 
-#define   HYP_BYTE_H  22 // Hypotenuse
-#define   HYP_BYTE_L  23
+#define   HYP_BYTE_H          32 // Hypotenuse
+#define   HYP_BYTE_L          33
 
-#define   INDEX_BYTE_H  24
-#define   INDEX_BYTE_L  25
+#define   INDEX_BYTE_H        34
+#define   INDEX_BYTE_L        35
 
-#define   STEPS_BYTE_H  26
-#define   STEPS_BYTE_L  27
+#define   STEPS_BYTE_H        36
+#define   STEPS_BYTE_L        37
 
 
 #define SET_0     0xA1
@@ -111,11 +122,28 @@ uint16_t achse3_max = ACHSE3_MAX;
 #define CLEAR_RING  0xA4
 #define END_RING  0xA5
 
+
 #define DREHKNOPPF 0xAA
+#define SET_WEG   0xA6
+#define CLEAR_WEG   0xA7
+#define END_WEG   0xA8
+
+
+
+#define DREHKNOPPF 0xAA
+
+
+
+
+
 
 uint8_t ringbufferstatus = 0;
 #define RING_FIRST   1
 #define RING_CONT    2
+
+uint8_t wegbufferstatus = 0;
+#define WEG_FIRST   1
+#define WEG_CONT    2
 
 
 //let GET_U:UInt8 = 0xA2
@@ -150,10 +178,15 @@ uint16_t schrittweite = 32;
 uint16_t wegindex = 0;
 
 robotposition aktuellepos;
+
 float deltax;
 float deltay;
 float deltaz;
 robotposition lastpos;
+
+elapsedMillis sincewegbuffer;
+wegposition lastwegpos;
+wegposition aktuellewegpos;
 
 uint16_t abschnittindex = 0; // aktuelles Element in positionsarray
 
@@ -165,6 +198,8 @@ uint8_t wegstatus = 0; //
 uint8_t ringbufferIn(struct robotposition pos);
 uint8_t ringbufferClear(void);
 
+uint8_t wegbufferIn(struct wegposition pos);
+uint8_t wegbufferClear(void);
 
 /*
 uint8_t ringbufferIn(struct robotposition pos)
@@ -179,7 +214,7 @@ uint8_t ringbufferIn(struct robotposition pos)
 */
 
 struct robotposition erstepos = {0,0,0,0,0,0};
-
+int achse0_startwert=0;
 
 void printHex8(uint8_t data) // prints 8-bit data in hex with leading zeroes
 {
@@ -197,6 +232,7 @@ void printHex8(uint8_t data) // prints 8-bit data in hex with leading zeroes
 void setup()
 {
    Serial.begin(9600);
+
    analogWriteResolution(16); // 32767
    
    /*
@@ -220,8 +256,23 @@ void setup()
    ringbuffer.write = 0;
    ringbuffer.read = 0;
    ringbuffer.position[0].task = 0;
+ 
    
-     
+   /*
+    struct wegposition.task
+    {
+    uint16_t rotwinkel;
+    uint16_t winkel1;
+    uint16_t winkel2;
+    uint16_t index;
+    uint8_t task;
+    };
+    */
+   wegbuffer.position[0].rotwinkel = 0;
+   wegbuffer.position[0].winkel1 = 0;
+   wegbuffer.position[0].winkel2 = 0;
+   wegbuffer.read = 0;
+   wegbuffer.write = 0;
    /*
    uint8_t erfolg = ringbufferIn(erstepos);
    
@@ -242,8 +293,6 @@ void setup()
    {
       pinMode(i, OUTPUT);
    }
-   #define  ACHSE3_BYTE_H  18
-   #define  ACHSE3_BYTE_L  19
 
    #define  achse0_PIN 5
    #define  achse1_PIN 6
@@ -255,13 +304,18 @@ void setup()
    pinMode(achse2_PIN, OUTPUT);
    pinMode(achse3_PIN, OUTPUT);
     
-//   analogWrite(achse0_PIN, 0x700 + achse0_start);
-   analogWrite(achse0_PIN,0xCCC + achse0_start); // Mitte
+   usbtask = 0;
+   achse0_startwert = 3250 + achse0_start;
+   analogWrite(achse0_PIN, achse0_startwert);
+//  analogWrite(achse0_PIN,1620 + achse0_start); // Mitte, 3250
    
-//   analogWrite(achse1_PIN, 0x700 + achse1_start);
-   analogWrite(achse1_PIN, 0xCCC + achse1_start); // Mitte
+   analogWrite(achse1_PIN, 2300); // senkrecht
+//   analogWrite(achse1_PIN, 0xAAA + achse1_start); // Mitte
    
- //  analogWrite(achse3_PIN, 0xCCC + achse3_start);
+    analogWrite(achse2_PIN, 640); // senkrecht
+ 
+   
+   //  analogWrite(achse3_PIN, 0xCCC + achse3_start);
    
 }
 
@@ -319,29 +373,6 @@ void loop()
       //usbtask = SET_0;
       switch (usbtask)
       {
-         case SET_0: // data
-         {
-            teensytask = 0;
-            pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
-            analogWrite(achse0_PIN, pot0 + achse0_start);
-            
-   //         pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-   //         analogWrite(achse1_PIN, pot1 + achse0_start);
-            //pot0 = (buffer[4])<<8 + buffer[5];
-            
-            Serial.print("Pot 0: ");
-            Serial.print((int)pot0);
-            Serial.print("\t");
-//            Serial.print("Pot 1: ");
-//            Serial.print((int)pot1);
-            
-            //    Serial.print(buffer[4]);
-            //    Serial.print("\t");
-            //    Serial.print(buffer[5]);
-            //    Serial.print("\t");
-            Serial.println();
-
-         }break;
             
          case GOTO_0:
          {
@@ -357,6 +388,7 @@ void loop()
             
          }break;
  
+           
 #pragma mark SET_RING
          case SET_RING:
          
@@ -374,10 +406,13 @@ void loop()
              
              */
             Serial.println(" SET_RING ");
+            
+            
+            
             struct robotposition p;
             p.x = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
             p.y = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
-    //        p.z = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            p.z = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
             p.task = SET_RING; 
             // HYP_BYTE_H
             p.hyp = (uint16_t)buffer[HYP_BYTE_H] << 8 | (uint16_t)buffer[HYP_BYTE_L];
@@ -390,10 +425,12 @@ void loop()
             if (p.index == 0) // Start 
             {
                ringbufferstatus |= (1<<RING_FIRST);
+               
+               
             }
             
             // pos in ringbuffer
-            Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> vor  ringbufferIn");
+            Serial.println("  vor  ringbufferIn");
             Serial.print(" read: ");
             Serial.print(ringbuffer.read);
             Serial.print(" write: "); // VOR ringbufferIn
@@ -409,7 +446,7 @@ void loop()
             // einsetzen in ringbuffer
             uint8_t erfolg = ringbufferIn(p); 
             
-             Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> nach  ringbufferIn");
+            Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> nach  ringbufferIn");
             Serial.print(" in erfolg: ");
             Serial.print(buffercode[erfolg]);
             
@@ -492,8 +529,8 @@ void loop()
                
                //lastpos = ringbuffer.position[0];
                
-               analogWrite(achse0_PIN, lastx + achse0_start);
-               analogWrite(achse1_PIN, lasty + achse1_start);
+               analogWrite(achse1_PIN, lastx + achse1_start);
+               analogWrite(achse2_PIN, lasty + achse2_start);
     //           analogWrite(achse2_PIN, lastz + achse2_start);
                schrittecount = 0;
             }
@@ -619,33 +656,281 @@ void loop()
           
          }break;
             
-         case SET_1: // data
+ #pragma mark SET_WEG             
+         case SET_WEG:            
          {
-            teensytask = 0;
-  //          pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
-  //          analogWrite(5, pot0 + achse0_start);
+            /*
+             struct wegposition
+             {
+             uint16_t rotwinkel;
+             uint16_t winkel1;
+             uint16_t winkel2;
+             uint16_t index;
+             uint16_t steps;
+             uint8_t task;
+             
+             };            
+             */
+            Serial.println(" SET_WEG ");
             
-            pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-            analogWrite(6, pot1 + achse1_start);
-
-            pot2 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-    //        analogWrite(6, pot2 + achse1_start);
-            //pot0 = (buffer[4])<<8 + buffer[5];
+            achse0_start = (uint16_t)buffer[ACHSE0_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_START_BYTE_L];
+            achse1_start = (uint16_t)buffer[ACHSE1_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_START_BYTE_L];
+            achse2_start = (uint16_t)buffer[ACHSE2_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_START_BYTE_L];
             
-  //          Serial.print("Pot 0: ");
- //           Serial.print((int)pot0);
- //           Serial.print("\t");
-            Serial.print("Pot 1: ");
-            Serial.print((int)pot1);
+            struct wegposition p;
+            p.rotwinkel = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            p.winkel1 = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
+            p.winkel2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            p.task = SET_WEG; 
+            // HYP_BYTE_H
+              
+            p.steps = (uint16_t)buffer[STEPS_BYTE_H] << 8 | (uint16_t)buffer[STEPS_BYTE_L];
             
-            //    Serial.print(buffer[4]);
-            //    Serial.print("\t");
-            //    Serial.print(buffer[5]);
-            //    Serial.print("\t");
-            Serial.println();
+            // Anzahl Pfadelemente im Bezierpath
+            p.index = (uint16_t)buffer[INDEX_BYTE_H] << 8 | (uint16_t)buffer[INDEX_BYTE_L];
+            
+            if (p.index == 0) // Start 
+            {
+               wegbufferstatus |= (1<<WEG_FIRST);
+             }
+            
+            // pos in wegbuffer
+      //      Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> vor  wegbufferIn");
+      //      Serial.print(" read: ");
+      //      Serial.print(wegbuffer.read);
+      //      Serial.print(" write: "); // VOR ringbufferIn
+      //      Serial.print(wegbuffer.write);
+            Serial.print(" index: ");
+            Serial.print(p.index);
+            Serial.print(" p steps: ");
+            Serial.print(p.steps);
+             // einsetzen in ringbuffer
+            uint8_t erfolg = wegbufferIn(p); 
+            
+       //     Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> nach  wegbufferIn");
+       //     Serial.print(" in erfolg: ");
+      //      Serial.print(buffercode[erfolg]);
+            
+            Serial.print(" anzschritte: ");
+            Serial.print(anzschritte);
+            
+            //Serial.print(" nach  ringbufferIn");
+            uint16_t anz = wegbufferCount();
+                        
+            Serial.print(" anzahl: ");
+            Serial.println(anz);
+   //         Serial.print(" read: ");
+   //         Serial.print(wegbuffer.read);
+   //         Serial.print(" write: "); // NACH ringbufferIn
+   //         Serial.print(wegbuffer.write); // = ringbuffer.write
+            
+            
+            
+            // Schritte berechnen
+//            p.index = 0;
+            if (p.index == 0) // Start Polynom
+            {
+               wegstatus = 0;
+               
+               Serial.println("");
+               Serial.print("********************   ");
+               Serial.println("wegbuffer start");
+               // pos 0 lesen: lastx Anfang
+               
+               uint8_t erfolg = wegbufferOut(&lastwegpos);
+     //          Serial.print(" out erfolg: ");
+     //          Serial.print(buffercode[erfolg]);
+               if (erfolg == 1)
+               {
+                  wegstatus |= (1<<WEG_OK);
+               }
+               else
+               {
+                  wegstatus |= (1<<WEG_ERR);
+               }
+               /*
+                struct wegposition
+                
+                uint16_t rotwinkel;
+                uint16_t winkel1;
+                uint16_t winkel2;
+                uint16_t index;
+                uint16_t steps;
+                uint8_t task;
+                */
+               uint16_t lastrotwinkel = lastwegpos.rotwinkel;
+               uint16_t lastwinkel1 = lastwegpos.winkel1;
+               uint16_t lastwinkel2 = lastwegpos.winkel2;
+               
+               wegindex = lastwegpos.index;
+               
+               abschnittindex  = lastwegpos.index;
+               
+               uint16_t lastanzsteps = lastwegpos.steps;
+               
+               
+               Serial.print(" lastrotwinkel: ");
+               Serial.print(lastrotwinkel);
+               Serial.print(" achse0_start: ");
+               Serial.println(achse0_start);
+               
+               Serial.print(" lastwinkel1: ");
+               Serial.print(lastwinkel1);
+               Serial.print(" achse1_start: ");
+               Serial.println(achse1_start);
+             
+               Serial.print(" lastwinkel2: ");
+               Serial.print(lastwinkel2);
+               Serial.print(" achse2_start: ");
+               Serial.println(achse2_start);
+               
+               Serial.print(" lastanzsteps: ");
+               Serial.println(lastanzsteps);
+               
+               /*
+                Serial.println("hyp=0");
+                Serial.print(" ****************** read: ");
+                Serial.print(ringbuffer.read);
+                Serial.print(" ****************** write: ");
+                Serial.println(ringbuffer.write);
+                
+                
+                
+                */
+               //              Serial.print(" abschnittindex: ");
+               //              Serial.println(abschnittindex);
+               
+               
+               
+               
+               //lastpos = ringbuffer.position[0];
+               
+               // zum ersten punkt fahren
+               analogWrite(achse0_PIN, lastrotwinkel + achse0_start);
+               analogWrite(achse1_PIN, lastwinkel1 + achse1_start);
+               analogWrite(achse2_PIN, lastwinkel2 + achse2_start);
+               
+               
+               schrittecount = 0;
+            }
+            else
+               
+            {
+               Serial.println("");
+               Serial.print("============================   ");
+               Serial.println("wegbuffer set punkt"); // neuen Punkt setzen. Endpunkt des ersten Elements oder des nächsten
+               //anzschritte = p.hyp / schrittweite;
+               uint16_t lastx = wegbuffer.position[wegbuffer.write-2].winkel1;
+               uint16_t lasty = wegbuffer.position[wegbuffer.write-2].winkel2;
+               uint16_t lastz = 0;//ringbuffer.position[ringbuffer.write-2].z;
+               uint16_t lastelementindex = wegbuffer.position[ringbuffer.write-2].index;
+               
+               uint16_t newx = wegbuffer.position[wegbuffer.write-1].winkel1; // neuer Wert ist schon in ringbuffer, write ist incrementiert
+               uint16_t newy = wegbuffer.position[wegbuffer.write-1].winkel2;
+               uint16_t newz = wegbuffer.position[wegbuffer.write-1].rotwinkel;
+               
+               uint16_t newelementindex = wegbuffer.position[wegbuffer.write-1].index;
+               //         wegindex = lastpos.index;
+               
+               /*
+               Serial.print("last x: ");
+               Serial.print(lastx);
+               Serial.print(" last y: ");
+               Serial.print(lasty);
+               Serial.print(" last z: ");
+               Serial.print(lastz);
+               Serial.print(" lastelementindex: ");
+               Serial.print(lastelementindex);
+               */
+               Serial.print(" * new Winkel1 : ");
+               Serial.print(newx);
+               Serial.print(" new Winkel2: ");
+               Serial.print(newy);
+               Serial.print(" new rotwinkel: ");
+               Serial.print(newz);
+               Serial.print(" newelementindex: ");
+               Serial.print(newelementindex);
+               Serial.println();
+               /*
+                // new
+                Serial.print("x: ");
+                Serial.print(p.x);
+                Serial.print(" y: ");
+                Serial.print(p.y);
+                Serial.print(" z: ");
+                Serial.println(p.z);
+                */
+               
+                 
+               Serial.print(" *** usbtask: ");
+               printHex8(usbtask);
+               
+               //Serial.print(" p anzschritte: ");
+               //Serial.println(p.steps);
+               //anzschritte = p.steps;
+               /*
+                Serial.println("hyp  not 0");
+                Serial.print(" ****************** read: ");
+                Serial.print(ringbuffer.read);
+                Serial.print(" ****************** write: ");
+                Serial.println(ringbuffer.write);
+                */
+            }
+            
             
          }break;
             
+            
+#pragma mark set 0               
+         case SET_0: // data
+         {
+            teensytask = 0;
+            pot0 = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            achse0_start = (uint16_t)buffer[ACHSE0_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_START_BYTE_L];
+            analogWrite(achse0_PIN, pot0 + achse0_start);
+            
+            
+            Serial.print("SET_0 Pot 0: ");
+            Serial.print((int)pot0);
+            Serial.print(" achse0_start: ");
+            Serial.print((int)achse0_start);
+            Serial.print(" ausgabe0: ");
+            uint16_t ausgabe0 = pot0 + achse0_start;
+            Serial.print((int)ausgabe0);
+
+            Serial.println();
+            
+         }break;
+
+#pragma mark set 1             
+         case SET_1: // data
+         {
+            teensytask = 0;
+            pot1 = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
+            achse1_start = (uint16_t)buffer[ACHSE1_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_START_BYTE_L];
+            uint16_t set1_wert = pot1 + achse1_start;
+            // Min ist 2640
+            if (set1_wert < 2630)
+            {
+               set1_wert = 2630;
+               Serial.print("***                    pot1 zu klein *** ");
+               Serial.print((int)set1_wert);
+               Serial.print(" ***");
+             
+            }
+            analogWrite(achse1_PIN, set1_wert);
+            
+            Serial.print("pot1: ");
+            Serial.print((int)pot1);
+            Serial.print(" start: ");
+            Serial.print((int)achse1_start);
+            Serial.print(" set1_wert: ");
+            Serial.print((int)set1_wert);
+            
+            Serial.println();
+            
+         }break;
+            /*
          case SET_2: // data
          {
             teensytask = 0;
@@ -666,8 +951,37 @@ void loop()
             Serial.println();
             
          }break;
+*/
+#pragma mark set 2             
+         case SET_2: // data
+         {
+            teensytask = 0;
+              
+            pot2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            achse2_start = (uint16_t)buffer[ACHSE2_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_START_BYTE_L];
+            uint16_t set2_wert = pot2 + achse2_start;
+            if (set2_wert < 1200)
+            {
+               set2_wert = 1250;
+               Serial.print("***                       pot2 zu klein ");
+               Serial.print((int)set2_wert);
+               Serial.print(" ***    ");
+            }
 
+            analogWrite(achse2_PIN, set2_wert);
+            
+            Serial.print("Pot2: ");
+            Serial.print((int)pot2);
+            Serial.print(" start: ");
+            Serial.print((int)achse2_start);
+            Serial.print(" set2_wert: ");
+            Serial.print((int)set2_wert);
+           
+             Serial.println();
+            
+         }break;
 
+#pragma mark set 3
          case SET_3: // data
          {
             teensytask = 0;
@@ -675,16 +989,15 @@ void loop()
             //          analogWrite(5, pot0 + achse0_start);
             
             pot3 = (uint16_t)buffer[ACHSE3_BYTE_H] << 8 | (uint16_t)buffer[ACHSE3_BYTE_L];
+            achse3_start = (uint16_t)buffer[ACHSE3_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE3_START_BYTE_L];
+
             analogWrite(achse3_PIN, pot3 + achse3_start);
             //pot0 = (buffer[4])<<8 + buffer[5];
             
             Serial.print("Pot 3: ");
             Serial.print((int)pot3);
-            
-            //    Serial.print(buffer[4]);
-            //    Serial.print("\t");
-            //    Serial.print(buffer[5]);
-            //    Serial.print("\t");
+            Serial.print(" achse3_start: ");
+            Serial.print((int)achse3_start);
             Serial.println();
             
          }break;
@@ -700,27 +1013,72 @@ void loop()
             
             pot2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
             analogWrite(achse2_PIN, pot2 + achse2_start);
+            pot0 = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            uint16_t offset0 = (uint16_t)buffer[ACHSE0_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_START_BYTE_L];
             
-            Serial.print("Pot 0: ");
+            //analogWrite(achse0_PIN, pot0 + achse0_start);
+            analogWrite(achse0_PIN, pot0 + offset0);
+            
+            
+            uint16_t offset1 = (uint16_t)buffer[ACHSE1_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_START_BYTE_L];
+          
+            pot1 = (uint16_t)buffer[ACHSE1_BYTE_H] << 8 | (uint16_t)buffer[ACHSE1_BYTE_L];
+            analogWrite(achse1_PIN, pot1 + offset1);
+            
+            uint16_t offset2 = (uint16_t)buffer[ACHSE2_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_START_BYTE_L];
+
+            pot2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            analogWrite(achse2_PIN, pot2 + offset2);
+            
+            Serial.print("SET_ROB Pot 0: ");
             Serial.print((int)pot0);
             Serial.print("\t");
+            //Serial.print("achse0_start: ");
+            //Serial.print((int)achse0_start);
+            //Serial.print("\t");
+            Serial.print("offset0: ");
+            Serial.print((int)offset0);
+            Serial.print("\t");
+
             Serial.print("Pot 1: ");
             Serial.print((int)pot1);
             Serial.print("\t");
             Serial.print("Pot 2: ");
             Serial.print((int)pot2);
             Serial.println();
+            //Serial.print("achse1_start: ");
+            //Serial.print((int)achse1_start);
+            //Serial.print("\t");
+            Serial.print("offset1: ");
+            Serial.print((int)offset1);
+            Serial.print("\t");
+
+
+
+            Serial.print("Pot 2: ");
+            Serial.print((int)pot2);
+            Serial.print("offset2: ");
+            Serial.println((int)offset2);
+  //          Serial.print("\t");
+
+         //   Serial.println();
 
          }break;
  
 #pragma mark set DREHKNOPF
          case DREHKNOPPF:
          {
+            Serial.print("setup achse0_startwert: ");
+            Serial.print((int)(achse0_startwert));
+            Serial.println();
+            achse0_start = (uint16_t)buffer[ACHSE0_START_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_START_BYTE_L];
             teensytask = 0;
             pot0 = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
             analogWrite(achse0_PIN, pot0 + achse0_start);
             Serial.print("Drehknopf Pot 0: ");
             Serial.print((int)pot0);
+            Serial.print(" achse0_start: ");
+            Serial.print((int)achse0_start);
             Serial.println();
          }break;
             
@@ -765,6 +1123,276 @@ void loop()
          
       }
    }
+
+#pragma mark sincewegbuffer 
+   
+   if ((sincewegbuffer > 128))// && (usbtask == SET_WEG)) // naechster Schritt
+   {
+      sincewegbuffer = 0;
+      
+      //     Serial.print(" abschnittindex: ");
+      //     Serial.print(abschnittindex);
+      
+      //     Serial.print(" aktuellepos index: ");
+      //    Serial.println(aktuellepos.index);
+      
+      //if (schrittecount == 0)
+      if (usbtask == SET_WEG)
+      {
+         
+         
+         // **************
+        // if ((schrittecount == 0)  && (!(usbtask == END_WEG)))
+         
+         if ((!(usbtask == END_WEG)))
+         {
+            /*
+             Serial.print("usbtask: ");
+             Serial.println(usbtask);
+             if (wegstatus & (1<<WEG_END))
+             {
+             Serial.println("WEG_END da");
+             
+             }
+             else
+             {
+             Serial.println("WEG_END nicht da");
+             }
+             */
+            uint8_t erfolg = wegbufferOut(&aktuellewegpos);
+            //Serial.print("*** schrittecount = 0 out-erfolg: ");
+            //Serial.print(buffercode[erfolg]);
+            if ((erfolg == 1))
+            {
+               wegstatus |= (1<<WEG_OK);
+               //
+               wegstatus &= ~(1<<WEG_END);
+               
+            /*   
+               Serial.print(" apos winkel1: ");
+               Serial.print(aktuellewegpos.winkel1);
+               Serial.print(" apos winkel2: ");
+               Serial.print(aktuellewegpos.winkel2);
+               Serial.print(" apos rotwinkel: ");
+               Serial.print(aktuellewegpos.rotwinkel);
+               Serial.print(" apos task: ");
+               Serial.print(aktuellewegpos.task);
+               
+               
+ //              Serial.print(anzschritte);
+               Serial.print(" apos steps: ");
+               Serial.print(aktuellewegpos.steps);
+               
+               
+               Serial.print(" apos index: ");
+               Serial.println(aktuellewegpos.index);
+               */
+               
+            }
+            else
+            {
+               wegstatus &= ~(1<<WEG_OK);
+               wegstatus |= (1<<WEG_END);
+               usbtask = END_WEG;
+               Serial.print("\n *** WEG_END");
+               Serial.print(" wegstatus: ");
+               Serial.println(wegstatus);
+            }
+            
+         }
+         
+         
+         // **************
+         
+ 
+         
+         //if ((schrittecount < anzschritte ) && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
+         if ( (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
+         {
+            /*
+             Serial.println("loop A");
+             Serial.print(" ****************** read: ");
+             Serial.print(ringbuffer.read);
+             Serial.print(" ****************** write: ");
+             Serial.println(ringbuffer.write);
+             */
+            /*
+             if (schrittecount == 0)
+             {
+             uint8_t erfolg = ringbufferOut(&aktuellepos);
+             Serial.print("\n *** schrittecount = 0 out-erfolg: ");
+             Serial.println(buffercode[erfolg]);
+             if ((erfolg == 1))
+             {
+             wegstatus |= (1<<WEG_OK);
+             
+             
+             
+             Serial.print(" aktuellepos x: ");
+             Serial.print(aktuellepos.x);
+             Serial.print(" aktuellepos y: ");
+             Serial.print(aktuellepos.y);
+             Serial.print(" aktuellepos z: ");
+             Serial.print(aktuellepos.z);
+             Serial.print(" aktuellepos hyp: ");
+             Serial.print(aktuellepos.hyp);
+             Serial.print(" aktuellepos task: ");
+             Serial.print(aktuellepos.task);
+             anzschritte = aktuellepos.hyp / schrittweite;
+             Serial.print(" anzschritte: ");
+             Serial.print(anzschritte);
+             Serial.print(" aktuellepos steps: ");
+             Serial.print(aktuellepos.steps);
+             
+             
+             Serial.print(" aktuellepos index: ");
+             Serial.println(aktuellepos.index);
+             
+             
+             // Schrittweiten:
+             deltax = float(aktuellepos.x - lastpos.x) / anzschritte;
+             deltay = float(aktuellepos.y - lastpos.y) / anzschritte;
+             deltaz = float(aktuellepos.z - lastpos.z) / anzschritte;
+             Serial.print(" delta x: ");
+             Serial.print(deltax);
+             Serial.print(" delta y: ");
+             Serial.print(deltay);
+             Serial.print(" delta z: ");
+             Serial.println(deltaz);
+             }
+             else
+             {
+             wegstatus &= ~(1<<WEG_OK);
+             wegstatus |= (1<<WEG_END);
+             usbtask == END_TASK;
+             
+             }
+             
+             }
+             */
+            schrittecount++;
+            
+     //       if ((schrittecount < 5) || (schrittecount > (anzschritte - 5)))
+            {
+               //        Serial.println("");
+               //Serial.print("ringbuffer cont schrittecount: ");
+               Serial.print(schrittecount);
+               //        Serial.print(" lastpos x: ");
+               //        Serial.print(lastpos.x);
+               //        Serial.print(" lastpos y: ");
+               //        Serial.print(lastpos.y);
+               //        Serial.print(" lastpos z: ");
+               //        Serial.print(lastpos.z);
+               
+               //        Serial.print("lastpos hyp: ");
+               
+               //         Serial.print(lastpos.hyp);
+               /*
+               Serial.print(" aktuellepos winkel1: ");
+               Serial.print(aktuellewegpos.winkel1);
+               Serial.print(" aktuellepos winkel2: ");
+               Serial.print(aktuellewegpos.winkel2);
+               Serial.print(" aktuellepos rotwinkel: ");
+               Serial.print(aktuellewegpos.rotwinkel);
+               Serial.print(" aktuellepos task: ");
+               Serial.print(aktuellewegpos.task);
+               anzschritte = aktuellepos.hyp / schrittweite;
+               //Serial.print(" anzschritte: ");
+               //Serial.print(anzschritte);
+               Serial.print(" aktuellepos steps: ");
+               Serial.print(aktuellewegpos.steps);
+               
+               
+               Serial.print(" aktuellepos index: ");
+               Serial.println(aktuellewegpos.index);
+               */
+            }
+            
+            analogWrite(achse0_PIN, aktuellewegpos.rotwinkel + achse0_start);
+            analogWrite(achse1_PIN, aktuellewegpos.winkel1 + achse1_start);
+            analogWrite(achse2_PIN, aktuellewegpos.winkel2 + achse2_start);
+            
+           // if ((schrittecount == anzschritte) && (wegstatus & (1<<WEG_OK)))
+            if ( (wegstatus & (1<<WEG_OK)))
+                
+            {
+               lastpos = aktuellepos;
+               Serial.print(" ende Element  ");
+               Serial.print(aktuellewegpos.index);
+               
+               /*
+               Serial.print(" lastpos daten  ");
+               Serial.print(" lastpos x: ");
+               Serial.print(lastpos.x);
+               Serial.print(" lastpos y: ");
+               Serial.print(lastpos.y);
+               Serial.print(" lastpos z: ");
+               Serial.print(lastpos.z);
+               Serial.print(" lastpos hyp: ");
+               Serial.print(lastpos.hyp);
+               Serial.print(" lastpos task: ");
+               Serial.print(lastpos.task);
+               Serial.print(" *** lastpos steps: ");
+               Serial.print(lastpos.steps);
+               
+               Serial.print(" lastpos index: ");
+               Serial.println(lastpos.index);
+               */
+               
+               
+               /*
+                uint8_t erfolg = ringbufferOut(&aktuellepos);
+                Serial.print("\n *** schrittecount = 0 erfolg: ");
+                Serial.println(buffercode[erfolg]);
+                Serial.print(" aktuellepos daten  ");
+                Serial.print(" aktuellepos x: ");
+                Serial.print(aktuellepos.x);
+                Serial.print(" aktuellepos y: ");
+                Serial.print(aktuellepos.y);
+                Serial.print(" aktuellepos z: ");
+                Serial.print(aktuellepos.z);
+                Serial.print(" aktuellepos hyp: ");
+                Serial.print(aktuellepos.hyp);
+                Serial.print(" aktuellepos task: ");
+                Serial.print(aktuellepos.task);
+                
+                Serial.print(" aktuellepos index: ");
+                Serial.println(aktuellepos.index);
+                
+                anzschritte = aktuellepos.hyp / schrittweite;
+                */
+               anzschritte = lastpos.steps;
+               schrittecount = 0;
+               
+            }
+            
+         }
+         else
+         {
+            //           Serial.print(" ende element schrittecount: ");
+            //           Serial.println(schrittecount);
+            //           schrittecount = 0;
+            
+            /*
+             robotposition r;
+             uint8_t erfolg = ringbufferOut(&r);
+             
+             Serial.print("erfolg: ");
+             Serial.print(erfolg);
+             Serial.print("x: ");
+             Serial.print(r.x);
+             Serial.print(" y: ");
+             Serial.print(r.y);
+             Serial.print(" hyp: ");
+             Serial.print(r.hyp);
+             Serial.print(" index: ");
+             Serial.println(r.index);
+             */
+         }
+      }
+      
+   }   
+
 #pragma mark sinceringbuffer    
    if ((sinceringbuffer > 32))// && (usbtask == SET_RING)) // naechster Schritt
    {
@@ -778,17 +1406,7 @@ void loop()
       //if (schrittecount == 0)
       if (usbtask == SET_RING)
       {
-          //    Serial.print(" abschnittindex: ");
-          //    Serial.print(abschnittindex);
-         
-          //    Serial.print(" aktuellepos index: ");
-          //   Serial.println(aktuellepos.index);
-     //    Serial.print(" lastpos steps: ");
-     //    Serial.print(lastpos.steps);
-    //    Serial.print(" aktuellepos steps: ");
-    //     Serial.println(aktuellepos.steps);
-         
-         // **************
+          // **************
          if ((schrittecount == 0)  && (!(usbtask == END_RING)))
          {
             /*
@@ -861,8 +1479,7 @@ void loop()
          
          // **************
 
-         if ((schrittecount < anzschritte )   && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
-      //   if ((schrittecount < lastpos.steps ) )//  && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
+         if ((schrittecount < anzschritte ) && (wegstatus & (1<<WEG_OK)))//&& ((abschnittindex+1) == aktuellepos.index))
          {
             /*
             Serial.print(" abschnittindex: ");
