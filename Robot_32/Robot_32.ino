@@ -99,7 +99,7 @@ uint16_t achse3_max = ACHSE3_MAX;
 
 
 #define SET_0     0xA1
-#define GOTO_0    0xAA
+#define GOTO_0    0xA7
 #define SET_1   0xB1
 #define GOTO_1 0xBA
 #define SET_2   0xC1
@@ -111,6 +111,7 @@ uint16_t achse3_max = ACHSE3_MAX;
 #define CLEAR_RING  0xA4
 #define END_RING  0xA5
 
+#define DREHKNOPPF 0xAA
 
 uint8_t ringbufferstatus = 0;
 #define RING_FIRST   1
@@ -251,7 +252,7 @@ void setup()
    
    pinMode(achse0_PIN, OUTPUT);
    pinMode(achse1_PIN, OUTPUT);
-   
+   pinMode(achse2_PIN, OUTPUT);
    pinMode(achse3_PIN, OUTPUT);
     
 //   analogWrite(achse0_PIN, 0x700 + achse0_start);
@@ -358,6 +359,7 @@ void loop()
  
 #pragma mark SET_RING
          case SET_RING:
+         
          {
             /*
              struct robotposition
@@ -392,7 +394,7 @@ void loop()
             
             // pos in ringbuffer
             Serial.println(" >>>>>>>>>>>>>>>>>>>>>>>>> vor  ringbufferIn");
-             Serial.print(" read: ");
+            Serial.print(" read: ");
             Serial.print(ringbuffer.read);
             Serial.print(" write: "); // VOR ringbufferIn
             Serial.print(ringbuffer.write);
@@ -643,6 +645,28 @@ void loop()
             Serial.println();
             
          }break;
+            
+         case SET_2: // data
+         {
+            teensytask = 0;
+            //          pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
+            //          analogWrite(5, pot0 + achse0_start);
+            
+            pot2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            analogWrite(achse2_PIN, pot2 + achse2_start);
+            //pot0 = (buffer[4])<<8 + buffer[5];
+            
+            Serial.print("Pot 2: ");
+            Serial.print((int)pot2);
+            
+            //    Serial.print(buffer[4]);
+            //    Serial.print("\t");
+            //    Serial.print(buffer[5]);
+            //    Serial.print("\t");
+            Serial.println();
+            
+         }break;
+
 
          case SET_3: // data
          {
@@ -664,23 +688,40 @@ void loop()
             Serial.println();
             
          }break;
-            
+#pragma mark set ROB            
          case SET_ROB:
          {
             teensytask = 0;
             pot0 = (uint16_t)buffer[4] << 8 | (uint16_t)buffer[5];
-            analogWrite(5, pot0 + achse0_start);
+            analogWrite(achse0_PIN, pot0 + achse0_start);
             
             pot1 = (uint16_t)buffer[6] << 8 | (uint16_t)buffer[7];
-            analogWrite(6, pot1 + achse1_start);
+            analogWrite(achse1_PIN, pot1 + achse1_start);
+            
+            pot2 = (uint16_t)buffer[ACHSE2_BYTE_H] << 8 | (uint16_t)buffer[ACHSE2_BYTE_L];
+            analogWrite(achse2_PIN, pot2 + achse2_start);
             
             Serial.print("Pot 0: ");
             Serial.print((int)pot0);
             Serial.print("\t");
             Serial.print("Pot 1: ");
             Serial.print((int)pot1);
+            Serial.print("\t");
+            Serial.print("Pot 2: ");
+            Serial.print((int)pot2);
             Serial.println();
 
+         }break;
+ 
+#pragma mark set DREHKNOPF
+         case DREHKNOPPF:
+         {
+            teensytask = 0;
+            pot0 = (uint16_t)buffer[ACHSE0_BYTE_H] << 8 | (uint16_t)buffer[ACHSE0_BYTE_L];
+            analogWrite(achse0_PIN, pot0 + achse0_start);
+            Serial.print("Drehknopf Pot 0: ");
+            Serial.print((int)pot0);
+            Serial.println();
          }break;
             
          case SIN_START: // sinus
@@ -940,7 +981,6 @@ void loop()
             analogWrite(achse1_PIN, lastpos.y + schrittecount * deltay + achse1_start);
             //      analogWrite(achse2_PIN, lastpos.z + schrittecount * deltaz + achse2_start);
             
-           // if ((schrittecount == lastpos.steps) && (wegstatus & (1<<WEG_OK)))
             if ((schrittecount == anzschritte) && (wegstatus & (1<<WEG_OK)))
             {
                lastpos = aktuellepos;
